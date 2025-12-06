@@ -1,343 +1,48 @@
-"""Unit tests for the issue_metrics module.
+"""A module containing unit tests for the issue_metrics module.
 
-This module contains unit tests for the functions in the issue_metrics module.
-The tests use the unittest module and the unittest.mock module to mock the
-GitHub API and test the functions in isolation.
+This module contains unit tests for the functions in the issue_metrics module
+that measure and analyze metrics of GitHub issues. The tests use mock GitHub
+issues and comments to test the functions' behavior.
 
 Classes:
-    TestSearchIssues: A class containing unit tests for the search_issues function.
-    TestMeasureTimeToFirstResponse: A class containing unit tests for the
-        measure_time_to_first_response function.
-    TestGetAverageTimeToFirstResponse: A class containing unit tests for the
-        get_average_time_to_first_response function.
-    TestWriteToMarkdown: A class containing unit tests for the write_to_markdown function.
+    TestSearchIssues: A class to test the search_issues function.
+    TestGetPerIssueMetrics: A class to test the get_per_issue_metrics function.
+    TestGetEnvVars: A class to test the get_env_vars function.
+    TestEvaluateMarkdownFileSize: A class to test the evaluate_markdown_file_size function.
 """
+
 import os
 import unittest
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import MagicMock, call, patch
 
-import issue_metrics
 from issue_metrics import (
     IssueWithMetrics,
-    auth_to_github,
-    get_average_time_to_close,
-    get_average_time_to_first_response,
+    evaluate_markdown_file_size,
     get_env_vars,
     get_per_issue_metrics,
     measure_time_to_close,
     measure_time_to_first_response,
-    search_issues,
-    write_to_markdown,
 )
-
-
-class TestSearchIssues(unittest.TestCase):
-    """Unit tests for the search_issues function.
-
-    This class contains unit tests for the search_issues function in the
-    issue_metrics module. The tests use the unittest module and the unittest.mock
-    module to mock the GitHub API and test the function in isolation.
-
-    Methods:
-        test_search_issues: Test that search_issues returns the correct issues.
-
-    """
-
-    @patch("issue_metrics.urlparse")
-    def test_search_issues(self, mock_urlparse):
-        """Test that search_issues returns the correct issues."""
-        # Set up the mock GitHub connection object
-        mock_connection = MagicMock()
-        mock_issues = [
-            MagicMock(title="Issue 1"),
-            MagicMock(title="Issue 2"),
-        ]
-        mock_connection.search_issues.return_value = mock_issues
-
-        # Set up the mock urlparse function
-        mock_urlparse.return_value.path = "/user/repo"
-
-        # Call search_issues and check that it returns the correct issues
-        issues = search_issues(
-            "https://github.com/user/repo", "is:open", mock_connection
-        )
-        self.assertEqual(issues, mock_issues)
-
-
-class TestAuthToGithub(unittest.TestCase):
-    """Test the auth_to_github function."""
-
-    @patch("github3.login")
-    def test_auth_to_github_with_token(self, mock_login):
-        """Test that auth_to_github works with a token.
-
-        This test sets the GH_TOKEN environment variable and checks that
-        auth_to_github returns the expected GitHub connection.
-
-        """
-
-        # Set up the mock GitHub connection
-        mock_gh = MagicMock()
-        mock_login.return_value = mock_gh
-
-        # Set up the environment variable
-        os.environ["GH_TOKEN"] = "test_token"
-
-        # Call the function
-        github_connection = auth_to_github()
-
-        # Check the results
-        self.assertEqual(github_connection, mock_gh)
-        mock_login.assert_called_once_with(token="test_token")
-
-    def test_auth_to_github_no_token(self):
-        """Test that auth_to_github raises a ValueError if GH_TOKEN is not set."""
-        # Unset the GH_TOKEN environment variable
-        if "GH_TOKEN" in os.environ:
-            del os.environ["GH_TOKEN"]
-
-        # Call auth_to_github and check that it raises a ValueError
-        with self.assertRaises(ValueError):
-            issue_metrics.auth_to_github()
-
-
-class TestMeasureTimeToFirstResponse(unittest.TestCase):
-    """Test the measure_time_to_first_response function."""
-
-    def test_measure_time_to_first_response(self):
-        """Test that measure_time_to_first_response calculates the correct time.
-
-        This test mocks the GitHub connection and issue comments, and checks that
-        measure_time_to_first_response calculates the correct time to first response.
-
-        """
-        # Set up the mock GitHub issues
-        mock_issue1 = MagicMock()
-        mock_issue1.comments = 1
-        mock_issue1.created_at = "2023-01-01T00:00:00Z"
-
-        mock_comment1 = MagicMock()
-        mock_comment1.created_at = datetime.fromisoformat("2023-01-02T00:00:00Z")
-        mock_issue1.issue.comments.return_value = [mock_comment1]
-
-        # Call the function
-        result = measure_time_to_first_response(mock_issue1)
-        expected_result = timedelta(days=1)
-
-        # Check the results
-        self.assertEqual(result, expected_result)
-
-    def test_measure_time_to_first_response_no_comments(self):
-        """Test that measure_time_to_first_response returns empty for an issue with no comments."""
-        # Set up mock issues with no comments
-        mock_issue1 = MagicMock()
-        mock_issue1.comments = 0
-        mock_issue1.created_at = "2023-01-01T00:00:00Z"
-
-        # Call the function
-        result = measure_time_to_first_response(mock_issue1)
-        expected_result = None
-
-        # Check the results
-        self.assertEqual(result, expected_result)
-
-
-class TestGetAverageTimeToClose(unittest.TestCase):
-    """Test suite for the get_average_time_to_close function."""
-
-    def test_get_average_time_to_close(self):
-        """Test that the function correctly calculates the average time to close."""
-        # Create mock data
-        issues_with_metrics = [
-            IssueWithMetrics(
-                "Issue 1",
-                "https://github.com/user/repo/issues/1",
-                None,
-                timedelta(days=2),
-            ),
-            IssueWithMetrics(
-                "Issue 2",
-                "https://github.com/user/repo/issues/2",
-                None,
-                timedelta(days=4),
-            ),
-            IssueWithMetrics(
-                "Issue 3", "https://github.com/user/repo/issues/3", None, None
-            ),
-        ]
-
-        # Call the function and check the result
-        result = get_average_time_to_close(issues_with_metrics)
-        expected_result = timedelta(days=3)
-        self.assertEqual(result, expected_result)
-
-    def test_get_average_time_to_close_no_issues(self):
-        """Test that the function returns None if there are no issues with time to close."""
-        # Create mock data
-        issues_with_metrics = [
-            IssueWithMetrics(
-                "Issue 1", "https://github.com/user/repo/issues/1", None, None
-            ),
-            IssueWithMetrics(
-                "Issue 2", "https://github.com/user/repo/issues/2", None, None
-            ),
-            IssueWithMetrics(
-                "Issue 3", "https://github.com/user/repo/issues/3", None, None
-            ),
-        ]
-
-        # Call the function and check the result
-        result = get_average_time_to_close(issues_with_metrics)
-        expected_result = None
-        self.assertEqual(result, expected_result)
-
-
-class TestGetAverageTimeToFirstResponse(unittest.TestCase):
-    """Test the get_average_time_to_first_response function."""
-
-    def test_get_average_time_to_first_response(self):
-        """Test that get_average_time_to_first_response calculates the correct average.
-
-        This test creates a list of mock GitHub issues with time to first response
-        attributes, calls get_average_time_to_first_response with the list, and
-        checks that the function returns the correct average time to first response.
-
-        """
-        # Create mock data
-        issues_with_metrics = [
-            IssueWithMetrics(
-                "Issue 1", "https://github.com/user/repo/issues/1", timedelta(days=1)
-            ),
-            IssueWithMetrics(
-                "Issue 2", "https://github.com/user/repo/issues/2", timedelta(days=2)
-            ),
-            IssueWithMetrics("Issue 3", "https://github.com/user/repo/issues/3", None),
-        ]
-
-        # Call the function and check the result
-        result = get_average_time_to_first_response(issues_with_metrics)
-        expected_result = timedelta(days=1.5)
-        self.assertEqual(result, expected_result)
-
-
-class TestMeasureTimeToClose(unittest.TestCase):
-    """Test suite for the measure_time_to_close function."""
-
-    def test_measure_time_to_close(self):
-        """Test that the function correctly measures the time to close an issue."""
-        # Create a mock issue object
-        issue = MagicMock()
-        issue.state = "closed"
-        issue.created_at = "2021-01-01T00:00:00Z"
-        issue.closed_at = "2021-01-03T00:00:00Z"
-
-        # Call the function and check the result
-        result = measure_time_to_close(issue)
-        expected_result = timedelta(days=2)
-        self.assertEqual(result, expected_result)
-
-    def test_measure_time_to_close_raises_error(self):
-        """Test that the function raises a ValueError if the issue is not closed."""
-        # Create a mock issue object
-        issue = MagicMock()
-        issue.state = "open"
-
-        # Call the function and check that it raises a ValueError
-        with self.assertRaises(ValueError):
-            measure_time_to_close(issue)
-
-
-class TestWriteToMarkdown(unittest.TestCase):
-    """Test the write_to_markdown function."""
-
-    def test_write_to_markdown(self):
-        """Test that write_to_markdown writes the correct markdown file.
-
-        This test creates a list of mock GitHub issues with time to first response
-        attributes, calls write_to_markdown with the list and the average time to
-        first response, time to close and checks that the function writes the correct
-        markdown file.
-
-        """
-        # Create mock data
-        issues_with_metrics = [
-            IssueWithMetrics(
-                "Issue 1",
-                "https://github.com/user/repo/issues/1",
-                timedelta(days=1),
-                timedelta(days=2),
-            ),
-            IssueWithMetrics(
-                "Issue 2",
-                "https://github.com/user/repo/issues/2",
-                timedelta(days=3),
-                timedelta(days=4),
-            ),
-        ]
-        average_time_to_first_response = timedelta(days=2)
-        average_time_to_close = timedelta(days=3)
-        num_issues_opened = 2
-        num_issues_closed = 1
-
-        # Call the function
-        write_to_markdown(
-            issues_with_metrics,
-            average_time_to_first_response,
-            average_time_to_close,
-            num_issues_opened,
-            num_issues_closed,
-        )
-
-        # Check that the function writes the correct markdown file
-        with open("issue_metrics.md", "r", encoding="utf-8") as file:
-            content = file.read()
-        expected_content = (
-            "# Issue Metrics\n\n"
-            "| Metric | Value |\n"
-            "| --- | ---: |\n"
-            "| Average time to first response | 2 days, 0:00:00 |\n"
-            "| Average time to close | 3 days, 0:00:00 |\n"
-            "| Number of issues that remain open | 2 |\n"
-            "| Number of issues closed | 1 |\n"
-            "| Total number of issues created | 2 |\n\n"
-            "| Title | URL | Time to first response | Time to close \n"
-            "| --- | --- | ---: | ---: |\n"
-            "| Issue 1 | https://github.com/user/repo/issues/1 | 1 day, 0:00:00 | "
-            "2 days, 0:00:00 |\n"
-            "| Issue 2 | https://github.com/user/repo/issues/2 | 3 days, 0:00:00 | "
-            "4 days, 0:00:00 |\n"
-        )
-        self.assertEqual(content, expected_content)
-        os.remove("issue_metrics.md")
-
-    def test_write_to_markdown_no_issues(self):
-        """Test that write_to_markdown writes the correct markdown file when no issues are found."""
-        # Call the function with no issues
-        with patch("builtins.open", mock_open()) as mock_open_file:
-            write_to_markdown([], None, None, 0, 0)
-
-        # Check that the file was written correctly
-        expected_output = "no issues found for the given search criteria\n\n"
-        mock_open_file.assert_called_once_with(
-            "issue_metrics.md", "w", encoding="utf-8"
-        )
-        mock_open_file().write.assert_called_once_with(expected_output)
 
 
 class TestGetEnvVars(unittest.TestCase):
     """Test suite for the get_env_vars function."""
 
+    @patch.dict(
+        os.environ,
+        {"GH_TOKEN": "test_token", "SEARCH_QUERY": "is:issue is:open repo:user/repo"},
+    )
     def test_get_env_vars(self):
         """Test that the function correctly retrieves the environment variables."""
-        # Set the environment variables
-        os.environ["SEARCH_QUERY"] = "is:issue is:open"
-        os.environ["REPOSITORY_URL"] = "https://github.com/user/repo"
 
         # Call the function and check the result
-        result = get_env_vars()
-        expected_result = ("is:issue is:open", "https://github.com/user/repo")
-        self.assertEqual(result, expected_result)
+        search_query = get_env_vars(test=True).search_query
+        gh_token = get_env_vars(test=True).gh_token
+        gh_token_expected_result = "test_token"
+        search_query_expected_result = "is:issue is:open repo:user/repo"
+        self.assertEqual(gh_token, gh_token_expected_result)
+        self.assertEqual(search_query, search_query_expected_result)
 
     def test_get_env_vars_missing_query(self):
         """Test that the function raises a ValueError
@@ -347,133 +52,35 @@ class TestGetEnvVars(unittest.TestCase):
 
         # Call the function and check that it raises a ValueError
         with self.assertRaises(ValueError):
-            get_env_vars()
-
-    def test_get_env_vars_missing_url(self):
-        """Test that the function raises a ValueError if the
-        REPOSITORY_URL environment variable is not set."""
-        # Unset the REPOSITORY_URL environment variable
-        os.environ.pop("REPOSITORY_URL", None)
-
-        # Call the function and check that it raises a ValueError
-        with self.assertRaises(ValueError):
-            get_env_vars()
-
-
-class TestMain(unittest.TestCase):
-    """Unit tests for the main function.
-
-    This class contains unit tests for the main function in the issue_metrics
-    module. The tests use the unittest module and the unittest.mock module to
-    mock the GitHub API and test the function in isolation.
-
-    Methods:
-        test_main: Test that main runs without errors.
-        test_main_no_issues_found: Test that main handles when no issues are found
-
-    """
-
-    @patch("issue_metrics.auth_to_github")
-    @patch("issue_metrics.search_issues")
-    @patch("issue_metrics.measure_time_to_first_response")
-    @patch("issue_metrics.get_average_time_to_first_response")
-    @patch.dict(
-        os.environ,
-        {
-            "SEARCH_QUERY": "is:open",
-            "REPOSITORY_URL": "https://github.com/user/repo",
-        },
-    )
-    def test_main(
-        self,
-        mock_get_average_time_to_first_response,
-        mock_measure_time_to_first_response,
-        mock_search_issues,
-        mock_auth_to_github,
-    ):
-        """Test that main runs without errors."""
-        # Set up the mock GitHub connection object
-        mock_connection = MagicMock()
-        mock_auth_to_github.return_value = mock_connection
-
-        # Set up the mock search_issues function
-        mock_issues = MagicMock(
-            items=[
-                MagicMock(title="Issue 1"),
-                MagicMock(title="Issue 2"),
-            ]
-        )
-
-        mock_search_issues.return_value = mock_issues
-
-        # Set up the mock measure_time_to_first_response function
-        mock_issues_with_ttfr = [
-            (
-                "Issue 1",
-                "https://github.com/user/repo/issues/1",
-                timedelta(days=1, hours=2, minutes=30),
-            ),
-            (
-                "Issue 2",
-                "https://github.com/user/repo/issues/2",
-                timedelta(days=3, hours=4, minutes=30),
-            ),
-        ]
-        mock_measure_time_to_first_response.return_value = mock_issues_with_ttfr
-
-        # Set up the mock get_average_time_to_first_response function
-        mock_average_time_to_first_response = 15
-        mock_get_average_time_to_first_response.return_value = (
-            mock_average_time_to_first_response
-        )
-
-        # Call main and check that it runs without errors
-        issue_metrics.main()
-
-        # Remove the markdown file created by main
-        os.remove("issue_metrics.md")
-
-    @patch("issue_metrics.auth_to_github")
-    @patch("issue_metrics.search_issues")
-    @patch("issue_metrics.write_to_markdown")
-    @patch.dict(
-        os.environ,
-        {
-            "SEARCH_QUERY": "is:open",
-            "REPOSITORY_URL": "https://github.com/user/repo",
-        },
-    )
-    def test_main_no_issues_found(
-        self,
-        mock_write_to_markdown,
-        mock_search_issues,
-        mock_auth_to_github,
-    ):
-        """Test that main writes 'No issues found' to the
-        console and calls write_to_markdown with None."""
-
-        # Set up the mock GitHub connection object
-        mock_connection = MagicMock()
-        mock_auth_to_github.return_value = mock_connection
-
-        # Set up the mock search_issues function to return an empty list of issues
-        mock_issues = MagicMock(items=[])
-        mock_search_issues.return_value = mock_issues
-
-        # Call main and check that it writes 'No issues found'
-        issue_metrics.main()
-        mock_write_to_markdown.assert_called_once_with(None, None, None, None, None)
+            get_env_vars(test=True)
 
 
 class TestGetPerIssueMetrics(unittest.TestCase):
     """Test suite for the get_per_issue_metrics function."""
 
-    def test_get_per_issue_metrics(self):
-        """Test that the function correctly calculates the metrics for a list of GitHub issues."""
+    @patch.dict(
+        os.environ,
+        {
+            "GH_TOKEN": "test_token",
+            "SEARCH_QUERY": "is:issue is:open repo:user/repo",
+            "HIDE_AUTHOR": "true",
+            "HIDE_LABEL_METRICS": "true",
+            "HIDE_TIME_TO_ANSWER": "true",
+            "HIDE_TIME_TO_CLOSE": "true",
+            "HIDE_TIME_TO_FIRST_RESPONSE": "true",
+        },
+    )
+    def test_get_per_issue_metrics_with_hide_envs(self):
+        """
+        Test that the function correctly calculates the metrics for
+        a list of GitHub issues where HIDE_* envs are set true
+        """
+
         # Create mock data
         mock_issue1 = MagicMock(
             title="Issue 1",
             html_url="https://github.com/user/repo/issues/1",
+            user={"login": "alice"},
             state="open",
             comments=1,
             created_at="2023-01-01T00:00:00Z",
@@ -482,10 +89,12 @@ class TestGetPerIssueMetrics(unittest.TestCase):
         mock_comment1 = MagicMock()
         mock_comment1.created_at = datetime.fromisoformat("2023-01-02T00:00:00Z")
         mock_issue1.issue.comments.return_value = [mock_comment1]
+        mock_issue1.issue.pull_request_urls = None
 
         mock_issue2 = MagicMock(
             title="Issue 2",
             html_url="https://github.com/user/repo/issues/2",
+            user={"login": "bob"},
             state="closed",
             comments=1,
             created_at="2023-01-01T00:00:00Z",
@@ -495,35 +104,46 @@ class TestGetPerIssueMetrics(unittest.TestCase):
         mock_comment2 = MagicMock()
         mock_comment2.created_at = datetime.fromisoformat("2023-01-03T00:00:00Z")
         mock_issue2.issue.comments.return_value = [mock_comment2]
+        mock_issue2.issue.pull_request_urls = None
+
         issues = [
             mock_issue1,
             mock_issue2,
         ]
 
         # Call the function and check the result
-        with unittest.mock.patch(
+        with unittest.mock.patch(  # type:ignore
             "issue_metrics.measure_time_to_first_response",
             measure_time_to_first_response,
-        ), unittest.mock.patch(
+        ), unittest.mock.patch(  # type:ignore
             "issue_metrics.measure_time_to_close", measure_time_to_close
         ):
             (
                 result_issues_with_metrics,
                 result_num_issues_open,
                 result_num_issues_closed,
-            ) = get_per_issue_metrics(issues)
+            ) = get_per_issue_metrics(
+                issues,
+                env_vars=get_env_vars(test=True),
+            )
         expected_issues_with_metrics = [
             IssueWithMetrics(
                 "Issue 1",
                 "https://github.com/user/repo/issues/1",
-                timedelta(days=1),
+                "alice",
+                None,
+                None,
+                None,
                 None,
             ),
             IssueWithMetrics(
                 "Issue 2",
                 "https://github.com/user/repo/issues/2",
-                timedelta(days=2),
-                timedelta(days=3),
+                "bob",
+                None,
+                None,
+                None,
+                None,
             ),
         ]
         expected_num_issues_open = 1
@@ -545,6 +165,435 @@ class TestGetPerIssueMetrics(unittest.TestCase):
         self.assertEqual(
             result_issues_with_metrics[1].time_to_close,
             expected_issues_with_metrics[1].time_to_close,
+        )
+
+    @patch.dict(
+        os.environ,
+        {
+            "GH_TOKEN": "test_token",
+            "SEARCH_QUERY": "is:issue is:open repo:user/repo",
+            "HIDE_AUTHOR": "false",
+            "HIDE_LABEL_METRICS": "false",
+            "HIDE_TIME_TO_ANSWER": "false",
+            "HIDE_TIME_TO_CLOSE": "false",
+            "HIDE_TIME_TO_FIRST_RESPONSE": "false",
+        },
+    )
+    def test_get_per_issue_metrics_without_hide_envs(self):
+        """
+        Test that the function correctly calculates the metrics for
+        a list of GitHub issues where HIDE_* envs are set false
+        """
+
+        # Create mock data
+        mock_issue1 = MagicMock(
+            title="Issue 1",
+            html_url="https://github.com/user/repo/issues/1",
+            user={"login": "alice"},
+            state="open",
+            comments=1,
+            created_at="2023-01-01T00:00:00Z",
+        )
+
+        mock_comment1 = MagicMock()
+        mock_comment1.created_at = datetime.fromisoformat("2023-01-02T00:00:00Z")
+        mock_issue1.issue.comments.return_value = [mock_comment1]
+        mock_issue1.issue.pull_request_urls = None
+
+        mock_issue2 = MagicMock(
+            title="Issue 2",
+            html_url="https://github.com/user/repo/issues/2",
+            user={"login": "bob"},
+            state="closed",
+            comments=1,
+            created_at="2023-01-01T00:00:00Z",
+            closed_at="2023-01-04T00:00:00Z",
+        )
+
+        mock_comment2 = MagicMock()
+        mock_comment2.created_at = datetime.fromisoformat("2023-01-03T00:00:00Z")
+        mock_issue2.issue.comments.return_value = [mock_comment2]
+        mock_issue2.issue.pull_request_urls = None
+
+        issues = [
+            mock_issue1,
+            mock_issue2,
+        ]
+
+        # Call the function and check the result
+        with unittest.mock.patch(  # type:ignore
+            "issue_metrics.measure_time_to_first_response",
+            measure_time_to_first_response,
+        ), unittest.mock.patch(  # type:ignore
+            "issue_metrics.measure_time_to_close", measure_time_to_close
+        ):
+            (
+                result_issues_with_metrics,
+                result_num_issues_open,
+                result_num_issues_closed,
+            ) = get_per_issue_metrics(
+                issues,
+                env_vars=get_env_vars(test=True),
+            )
+        expected_issues_with_metrics = [
+            IssueWithMetrics(
+                "Issue 1",
+                "https://github.com/user/repo/issues/1",
+                "alice",
+                timedelta(days=1),
+                None,
+                None,
+                None,
+            ),
+            IssueWithMetrics(
+                "Issue 2",
+                "https://github.com/user/repo/issues/2",
+                "bob",
+                timedelta(days=2),
+                timedelta(days=3),
+                None,
+                None,
+            ),
+        ]
+        expected_num_issues_open = 1
+        expected_num_issues_closed = 1
+        self.assertEqual(result_num_issues_open, expected_num_issues_open)
+        self.assertEqual(result_num_issues_closed, expected_num_issues_closed)
+        self.assertEqual(
+            result_issues_with_metrics[0].time_to_first_response,
+            expected_issues_with_metrics[0].time_to_first_response,
+        )
+        self.assertEqual(
+            result_issues_with_metrics[0].time_to_close,
+            expected_issues_with_metrics[0].time_to_close,
+        )
+        self.assertEqual(
+            result_issues_with_metrics[1].time_to_first_response,
+            expected_issues_with_metrics[1].time_to_first_response,
+        )
+        self.assertEqual(
+            result_issues_with_metrics[1].time_to_close,
+            expected_issues_with_metrics[1].time_to_close,
+        )
+
+    @patch.dict(
+        os.environ,
+        {
+            "GH_TOKEN": "test_token",
+            "SEARCH_QUERY": "is:issue is:open repo:user/repo",
+            "IGNORE_USERS": "alice",
+        },
+    )
+    def test_get_per_issue_metrics_with_ignore_users(self):
+        """
+        Test that the function correctly filters out issues
+        with authors in the IGNORE_USERS variable
+        """
+
+        # Create mock data
+        mock_issue1 = MagicMock(
+            title="Issue 1",
+            html_url="https://github.com/user/repo/issues/1",
+            user={"login": "alice"},
+            state="open",
+            comments=1,
+            created_at="2023-01-01T00:00:00Z",
+        )
+
+        mock_comment1 = MagicMock()
+        mock_comment1.created_at = datetime.fromisoformat("2023-01-02T00:00:00Z")
+        mock_issue1.issue.comments.return_value = [mock_comment1]
+        mock_issue1.issue.pull_request_urls = None
+
+        mock_issue2 = MagicMock(
+            title="Issue 2",
+            html_url="https://github.com/user/repo/issues/2",
+            user={"login": "bob"},
+            state="closed",
+            comments=1,
+            created_at="2023-01-01T00:00:00Z",
+            closed_at="2023-01-04T00:00:00Z",
+        )
+
+        mock_comment2 = MagicMock()
+        mock_comment2.created_at = datetime.fromisoformat("2023-01-03T00:00:00Z")
+        mock_issue2.issue.comments.return_value = [mock_comment2]
+        mock_issue2.issue.pull_request_urls = None
+
+        issues = [
+            mock_issue1,
+            mock_issue2,
+        ]
+
+        # Call the function and check the result
+        with unittest.mock.patch(  # type:ignore
+            "issue_metrics.measure_time_to_first_response",
+            measure_time_to_first_response,
+        ), unittest.mock.patch(  # type:ignore
+            "issue_metrics.measure_time_to_close", measure_time_to_close
+        ):
+            (
+                result_issues_with_metrics,
+                result_num_issues_open,
+                result_num_issues_closed,
+            ) = get_per_issue_metrics(
+                issues,
+                env_vars=get_env_vars(test=True),
+                ignore_users=["alice"],
+            )
+        expected_issues_with_metrics = [
+            IssueWithMetrics(
+                "Issue 2",
+                "https://github.com/user/repo/issues/2",
+                "bob",
+                timedelta(days=2),
+                timedelta(days=3),
+                None,
+                None,
+            ),
+        ]
+        expected_num_issues_open = 0
+        expected_num_issues_closed = 1
+        self.assertEqual(result_num_issues_open, expected_num_issues_open)
+        self.assertEqual(result_num_issues_closed, expected_num_issues_closed)
+        self.assertEqual(
+            result_issues_with_metrics[0].time_to_first_response,
+            expected_issues_with_metrics[0].time_to_first_response,
+        )
+        self.assertEqual(
+            result_issues_with_metrics[0].time_to_close,
+            expected_issues_with_metrics[0].time_to_close,
+        )
+
+    @patch.dict(
+        os.environ,
+        {
+            "GH_TOKEN": "test_token",
+            "SEARCH_QUERY": "is:pr is:open repo:user/repo",
+        },
+    )
+    def test_get_per_issue_metrics_with_ghost_user_pull_request(self):
+        """
+        Test that the function handles TypeError when a pull request
+        contains a ghost user (deleted account) gracefully.
+        """
+        # Create mock data for a pull request that will cause TypeError on pull_request()
+        mock_issue = MagicMock(
+            title="PR with Ghost User",
+            html_url="https://github.com/user/repo/pull/1",
+            user={"login": "existing_user"},
+            state="open",
+            comments=0,
+            created_at="2023-01-01T00:00:00Z",
+            closed_at=None,
+        )
+
+        # Mock the issue to have pull_request_urls (indicating it's a PR)
+        mock_issue.issue.pull_request_urls = [
+            "https://api.github.com/repos/user/repo/pulls/1"
+        ]
+
+        # Make pull_request() raise TypeError (simulating ghost user scenario)
+        mock_issue.issue.pull_request.side_effect = TypeError(
+            "'NoneType' object is not subscriptable"
+        )
+        mock_issue.issue.comments.return_value = []
+        mock_issue.issue.assignee = None
+        mock_issue.issue.assignees = None
+
+        issues = [mock_issue]
+
+        # Mock the measure functions to avoid additional complexities
+        with unittest.mock.patch(  # type: ignore
+            "issue_metrics.measure_time_to_first_response",
+            return_value=timedelta(days=1),
+        ), unittest.mock.patch(  # type: ignore
+            "issue_metrics.measure_time_to_close", return_value=None
+        ):
+            # Call the function and verify it doesn't crash
+            (
+                result_issues_with_metrics,
+                result_num_issues_open,
+                result_num_issues_closed,
+            ) = get_per_issue_metrics(
+                issues,
+                env_vars=get_env_vars(test=True),
+            )
+
+        # Verify the function completed successfully despite the TypeError
+        self.assertEqual(len(result_issues_with_metrics), 1)
+        self.assertEqual(result_num_issues_open, 1)
+        self.assertEqual(result_num_issues_closed, 0)
+
+        # Verify the issue was processed with pull_request as None
+        issue_metric = result_issues_with_metrics[0]
+        self.assertEqual(issue_metric.title, "PR with Ghost User")
+        self.assertEqual(issue_metric.author, "existing_user")
+
+
+class TestDiscussionMetrics(unittest.TestCase):
+    """Test suite for the discussion_metrics function."""
+
+    def setUp(self):
+        # Mock a discussion dictionary
+        self.issue1 = {
+            "title": "Issue 1",
+            "url": "github.com/user/repo/issues/1",
+            "user": {"login": "alice"},
+            "createdAt": "2023-01-01T00:00:00Z",
+            "comments": {
+                "nodes": [
+                    {
+                        "createdAt": "2023-01-02T00:00:00Z",
+                    }
+                ]
+            },
+            "answerChosenAt": "2023-01-04T00:00:00Z",
+            "closedAt": "2023-01-05T00:00:00Z",
+        }
+
+        self.issue2 = {
+            "title": "Issue 2",
+            "url": "github.com/user/repo/issues/2",
+            "user": {"login": "bob"},
+            "createdAt": "2023-01-01T00:00:00Z",
+            "comments": {"nodes": [{"createdAt": "2023-01-03T00:00:00Z"}]},
+            "answerChosenAt": "2023-01-05T00:00:00Z",
+            "closedAt": "2023-01-07T00:00:00Z",
+        }
+
+    @patch.dict(
+        os.environ,
+        {"GH_TOKEN": "test_token", "SEARCH_QUERY": "is:issue is:open repo:user/repo"},
+    )
+    def test_get_per_issue_metrics_with_discussion(self):
+        """
+        Test that the function correctly calculates
+        the metrics for a list of GitHub issues with discussions.
+        """
+
+        issues = [self.issue1, self.issue2]
+        metrics = get_per_issue_metrics(
+            issues, discussions=True, env_vars=get_env_vars(test=True)
+        )
+
+        # get_per_issue_metrics returns a tuple of
+        # (issues_with_metrics, num_issues_open, num_issues_closed)
+        self.assertEqual(len(metrics), 3)
+
+        # Check that the metrics are correct, 0 issues open, 2 issues closed
+        self.assertEqual(metrics[1], 0)
+        self.assertEqual(metrics[2], 2)
+
+        # Check that the issues_with_metrics has 2 issues in it
+        self.assertEqual(len(metrics[0]), 2)
+
+        # Check that the issues_with_metrics has the correct metrics,
+        self.assertEqual(metrics[0][0].time_to_answer, timedelta(days=3))
+        self.assertEqual(metrics[0][0].time_to_close, timedelta(days=4))
+        self.assertEqual(metrics[0][0].time_to_first_response, timedelta(days=1))
+        self.assertEqual(metrics[0][1].time_to_answer, timedelta(days=4))
+        self.assertEqual(metrics[0][1].time_to_close, timedelta(days=6))
+        self.assertEqual(metrics[0][1].time_to_first_response, timedelta(days=2))
+
+    @patch.dict(
+        os.environ,
+        {
+            "GH_TOKEN": "test_token",
+            "SEARCH_QUERY": "is:issue is:open repo:user/repo",
+            "HIDE_AUTHOR": "true",
+            "HIDE_CREATED_AT": "false",
+            "HIDE_LABEL_METRICS": "true",
+            "HIDE_TIME_TO_ANSWER": "true",
+            "HIDE_TIME_TO_CLOSE": "true",
+            "HIDE_TIME_TO_FIRST_RESPONSE": "true",
+        },
+    )
+    def test_get_per_issue_metrics_with_discussion_with_hide_envs(self):
+        """
+        Test that the function correctly calculates
+        the metrics for a list of GitHub issues with discussions
+        and HIDE_* env vars set to True
+        """
+
+        issues = [self.issue1, self.issue2]
+        metrics = get_per_issue_metrics(
+            issues, discussions=True, env_vars=get_env_vars(test=True)
+        )
+
+        # get_per_issue_metrics returns a tuple of
+        # (issues_with_metrics, num_issues_open, num_issues_closed)
+        self.assertEqual(len(metrics), 3)
+
+        # Check that the metrics are correct, 0 issues open, 2 issues closed
+        self.assertEqual(metrics[1], 0)
+        self.assertEqual(metrics[2], 2)
+
+        # Check that the issues_with_metrics has 2 issues in it
+        self.assertEqual(len(metrics[0]), 2)
+
+        # Check that the issues_with_metrics has the correct metrics,
+        self.assertEqual(metrics[0][0].time_to_answer, None)
+        self.assertEqual(metrics[0][0].time_to_close, None)
+        self.assertEqual(metrics[0][0].time_to_first_response, None)
+        self.assertEqual(metrics[0][1].time_to_answer, None)
+        self.assertEqual(metrics[0][1].time_to_close, None)
+        self.assertEqual(metrics[0][1].time_to_first_response, None)
+
+
+class TestEvaluateMarkdownFileSize(unittest.TestCase):
+    """Test suite for the evaluate_markdown_file_size function."""
+
+    @patch("issue_metrics.markdown_too_large_for_issue_body")
+    def test_markdown_too_large_for_issue_body_called_with_empty_output_file(
+        self, mock_evaluate
+    ):
+        """
+        Test that the function uses the output_file.
+        """
+        mock_evaluate.return_value = False
+        evaluate_markdown_file_size("")
+
+        mock_evaluate.assert_called_with("issue_metrics.md", 65535)
+
+    @patch("issue_metrics.markdown_too_large_for_issue_body")
+    def test_markdown_too_large_for_issue_body_called_with_output_file(
+        self, mock_evaluate
+    ):
+        """
+        Test that the function uses the output_file.
+        """
+        mock_evaluate.return_value = False
+        evaluate_markdown_file_size("test_issue_metrics.md")
+
+        mock_evaluate.assert_called_with("test_issue_metrics.md", 65535)
+
+    @patch("issue_metrics.print")
+    @patch("shutil.move")
+    @patch("issue_metrics.split_markdown_file")
+    @patch("issue_metrics.markdown_too_large_for_issue_body")
+    def test_split_markdown_file_when_file_size_too_large(
+        self, mock_evaluate, mock_split, mock_move, mock_print
+    ):
+        """
+        Test that the function is called with the output_file
+        environment variable.
+        """
+        mock_evaluate.return_value = True
+        evaluate_markdown_file_size("test_issue_metrics.md")
+
+        mock_split.assert_called_with("test_issue_metrics.md", 65535)
+        mock_move.assert_has_calls(
+            [
+                call("test_issue_metrics.md", "test_issue_metrics_full.md"),
+                call("test_issue_metrics_0.md", "test_issue_metrics.md"),
+            ]
+        )
+        mock_print.assert_called_with(
+            "Issue metrics markdown file is too large for GitHub issue body and has been \
+split into multiple files. ie. test_issue_metrics.md, test_issue_metrics_1.md, etc. \
+The full file is saved as test_issue_metrics_full.md\n\
+See https://github.com/github/issue-metrics/blob/main/docs/dealing-with-large-issue-metrics.md"
         )
 
 

@@ -1,13 +1,20 @@
 # Output files
-issue_metrics.md
+issue_metrics*.md
+issue_metrics.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
 
+# asdf
+.tool-versions
+
 # C extensions
 *.so
+
+# JSCPD
+report/
 
 # Distribution / packaging
 .Python
@@ -142,3 +149,7 @@ cython_debug/
 
 # Mac
 .DS_Store
+**/.DS_Store
+
+# PyCharm
+.idea/
